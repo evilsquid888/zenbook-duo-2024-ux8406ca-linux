@@ -11,6 +11,26 @@ Features:
 
 `duo set-tablet-mapping` will set necessary dconf settings, but for them to work you need a Mutter with a patch from https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/3556 and libwacom with this patch https://github.com/linuxwacom/libwacom/pull/640 . Both are merged upstream, so you can just wait.
 
+### Hardware variants
+
+Different hardware variants of the Zenbook Duo may have different touchscreen device IDs. The script has been updated to support the following variants:
+
+1. Original variant:
+   - Top screen: 04f3:425b
+   - Bottom screen: 04f3:425a
+
+2. Alternative variant:
+   - Top screen: ELAN9008:00 04F3:4447
+   - Bottom screen: ELAN9009:00 04F3:4448
+
+If your touchscreens are detected but not mapping correctly (e.g., bottom screen touches register on the top screen), you may need to check your device IDs and update the script. You can check your device IDs with:
+
+```bash
+sudo cat /sys/class/input/event*/device/name | grep -i elan
+```
+
+A custom script `fix-touchscreen-custom.sh` is also available for manual mapping if needed.
+
 ## bottom screen toggle on GNOME
 
 Make sure gnome-monitor-config, usbutils and inotify-tools are installed, the script relies on the `gnome-monitor-config`, `lsusb` and `inotifywait` commands from them.
