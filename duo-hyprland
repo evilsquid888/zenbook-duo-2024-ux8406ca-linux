@@ -1,5 +1,18 @@
 #!/usr/bin/env bash
 
+# WARNING: This script may not be fully necessary for all Hyprland setups.
+# The current implementation mostly works except for monitor placement issues.
+# Mouse input seems to map correctly in both cases, but applications like Chrome
+# may experience input mapping problems. Use with caution and modify as needed
+# for your specific hardware configuration.
+#
+# Tested environment:
+# - Hyprland v0.41.2 (commit 918d8340afd652b011b937d29d5eea0be08467f5)
+# - Ubuntu 24.10 (Oracular)
+# - Kernel 6.14.1-061401-generic
+# 
+# Your results may vary with different versions or configurations.
+
 cd "$(dirname "$(realpath "$0")")"
 
 # 3k model
