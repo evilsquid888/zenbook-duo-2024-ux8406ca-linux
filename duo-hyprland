@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+
+cd "$(dirname "$(realpath "$0")")"
+
+# 3k model
+preferred_resolution="2880x1800@120.000"
+ui_scale=1.8 # Hyprland prefers clean divisors for scaling
+y_offset=1030
+backlight=card1-eDP-2-backlight
+
+# 1080p model
+#preferred_resolution="1920x1200@60.003"
+#backlight=card1-eDP-2-backlight
+#ui_scale=1
+#y_offset=1200
+
+# Device IDs for touchscreens
+# Original variant
+TOP_TOUCH_ID_1="04f3:425b"
+BOTTOM_TOUCH_ID_1="04f3:425a"
+# Alternative variant
+TOP_TOUCH_ID_2="04f3:4447"
+BOTTOM_TOUCH_ID_2="04f3:4448"
+
+function suenv {
+  sudo /usr/bin/env "$@"
+}
+
+function external-display-connected {
+  [ "$(hyprctl monitors -j | jq 'map(select(.name != "eDP-1" and .name != "eDP-2")) | length')" != "0" ]
+}
+
+function active-external-displays {
+  hyprctl monitors -j | jq -r 'map(select(.name != "eDP-1" and .name != "eDP-2")) | .[].name'
+}
+
+function get_touchscreen_device_ids {
+  # Get the input device IDs for touchscreens
+  hyprctl devices -j | jq -r '.mice[] | select(.name | contains("ELAN")) | .name'
+}
+
+function map_touchscreen_to_monitor {
+  local device="$1"
+  local monitor="$2"
+  
+  # Map the touchscreen to the specified monitor
+  hyprctl keyword device:${device}:region ${monitor}
+}
+
+case "$1" in
+  watch-displays)
+    while inotifywait -e attrib /dev/bus/usb/*/ ; do
+      if ! external-display-connected; then
+        "$0" normal
+      fi
+    done
+    ;;
+  set-displays)
+    sleep 1
+    if ! external-display-connected; then 
+      "$0" normal
+    fi
+    ;;
+  normal|bottom-up)
+    if lsusb | grep 0b05:1b2c ; then
+      "$0" top
+    else
+      "$0" both
+    fi
+    ;;
+  top)
+    # Enable only the top screen
+    hyprctl keyword monitor "eDP-1,${preferred_resolution},0x0,1"
+    hyprctl keyword monitor "eDP-2,disable"
+    ;;
+  both)
+    # Enable both screens with top screen above bottom screen
+    hyprctl keyword monitor "eDP-1,${preferred_resolution},0x0,1"
+    hyprctl keyword monitor "eDP-2,${preferred_resolution},0x1800,1"
+    ;;
+  bottom)
+    # Enable only the bottom screen
+    hyprctl keyword monitor "eDP-1,disable"
+    hyprctl keyword monitor "eDP-2,${preferred_resolution},0x0,1"
+    ;;
+  left-up)
+    # Set screens in vertical orientation with bottom screen on left
+    hyprctl keyword monitor "eDP-2,${preferred_resolution},0x0,1,transform,1"
+    hyprctl keyword monitor "eDP-1,${preferred_resolution},${y_offset}x0,1,transform,1"
+    ;;
+  right-up)
+    # Set screens in vertical orientation with top screen on left
+    hyprctl keyword monitor "eDP-1,${preferred_resolution},0x0,1,transform,3"
+    hyprctl keyword monitor "eDP-2,${preferred_resolution},${y_offset}x0,1,transform,3"
+    ;;
+  status-internal)
+    # Check which internal monitors are active
+    top_active=$(hyprctl monitors -j | jq -r 'map(select(.name == "eDP-1" and .enabled == true)) | length')
+    bottom_active=$(hyprctl monitors -j | jq -r 'map(select(.name == "eDP-2" and .enabled == true)) | length')
+    
+    if [ "$top_active" -eq "1" ] && [ "$bottom_active" -eq "1" ]; then
+      echo "both"
+    elif [ "$top_active" -eq "1" ]; then
+      echo "top"
+    elif [ "$bottom_active" -eq "1" ]; then
+      echo "bottom"
+    else
+      echo "none"
+    fi
+    ;;
+  status)
+    (
+      active-external-displays
+    ) | grep -vE "^$" | sed -z "s/\n/+/g"
+    "$0" status-internal
+    ;;
+  toggle)
+    status=$("$0" status-internal)
+    if [ "$status" = "both" ]; then
+      "$0" top
+    else
+      "$0" both
+    fi
+    ;;
+  set-tablet-mapping)
+    # Map touchscreens to their respective monitors
+    # First, get the device names
+    top_device_1=$(hyprctl devices -j | jq -r '.mice[] | select(.name | contains("'${TOP_TOUCH_ID_1}'")) | .name')
+    bottom_device_1=$(hyprctl devices -j | jq -r '.mice[] | select(.name | contains("'${BOTTOM_TOUCH_ID_1}'")) | .name')
+    top_device_2=$(hyprctl devices -j | jq -r '.mice[] | select(.name | contains("'${TOP_TOUCH_ID_2}'")) | .name')
+    bottom_device_2=$(hyprctl devices -j | jq -r '.mice[] | select(.name | contains("'${BOTTOM_TOUCH_ID_2}'")) | .name')
+    
+    # Map the devices if they exist
+    [ -n "$top_device_1" ] && hyprctl keyword device:"$top_device_1":region eDP-1
+    [ -n "$bottom_device_1" ] && hyprctl keyword device:"$bottom_device_1":region eDP-2
+    [ -n "$top_device_2" ] && hyprctl keyword device:"$top_device_2":region eDP-1
+    [ -n "$bottom_device_2" ] && hyprctl keyword device:"$bottom_device_2":region eDP-2
+    ;;
+  toggle-bottom-touch)
+    # Get the bottom touchscreen device
+    bottom_device_1=$(hyprctl devices -j | jq -r '.mice[] | select(.name | contains("'${BOTTOM_TOUCH_ID_1}'")) | .name')
+    bottom_device_2=$(hyprctl devices -j | jq -r '.mice[] | select(.name | contains("'${BOTTOM_TOUCH_ID_2}'")) | .name')
+    
+    # Check if the device is currently enabled
+    if [ -n "$bottom_device_1" ]; then
+      current_state=$(hyprctl devices -j | jq -r '.mice[] | select(.name | contains("'${BOTTOM_TOUCH_ID_1}'")) | .enabled')
+      if [ "$current_state" = "true" ]; then
+        hyprctl keyword device:"$bottom_device_1":enabled false
+      else
+        hyprctl keyword device:"$bottom_device_1":enabled true
+        hyprctl keyword device:"$bottom_device_1":region eDP-2
+      fi
+    fi
+    
+    if [ -n "$bottom_device_2" ]; then
+      current_state=$(hyprctl devices -j | jq -r '.mice[] | select(.name | contains("'${BOTTOM_TOUCH_ID_2}'")) | .enabled')
+      if [ "$current_state" = "true" ]; then
+        hyprctl keyword device:"$bottom_device_2":enabled false
+      else
+        hyprctl keyword device:"$bottom_device_2":enabled true
+        hyprctl keyword device:"$bottom_device_2":region eDP-2
+      fi
+    fi
+    ;;
+  bat-limit)
+    echo "${2:-80}" | suenv tee /sys/class/power_supply/BAT0/charge_control_end_threshold
+    ;;
+  sync-backlight)
+    cat "/sys/class/backlight/intel_backlight/brightness" |
+      suenv tee /sys/class/backlight/$backlight/brightness
+    ;;
+  set-kb-backlight)
+    suenv python3 bk.py "$2"
+    ;;
+  watch-backlight)
+    "$0" sync-backlight
+    while inotifywait -e modify /sys/class/backlight/intel_backlight/brightness ; do
+      "$0" sync-backlight
+    done
+    ;;
+  watch-rotation)
+    monitor-sensor --accel |
+      stdbuf -oL grep orientation |
+      stdbuf -oL cut -d: -f2 |
+      stdbuf -oL sed 's/[ )]//g' |
+      while read -r orientation; do
+        case "$orientation" in
+          normal)
+            "$0" both
+            ;;
+          left-up)
+            "$0" left-up
+            ;;
+          right-up)
+            "$0" right-up
+            ;;
+          bottom-up)
+            "$0" bottom-up
+            ;;
+        esac
+      done
+    ;;
+  *) echo "Usage: duo-hyprland <top|bottom|both|set-displays|toggle|status|set-tablet-mapping|bat-limit|sync-backlight|set-kb-backlight|watch-backlight|watch-rotation|watch-displays>"
+esac
